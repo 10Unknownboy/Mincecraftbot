@@ -38,6 +38,7 @@ function createBot() {
   })
 
   bot.on('chat', (username, message) => {
+
     log(`[CHAT] ${username}: ${message}`)
 
     if (username === bot.username) return
@@ -45,6 +46,7 @@ function createBot() {
     if (message === 'Goon') {
       bot.chat('AHHHHHHHHHHHHHHHHHHHHHHHH')
     }
+
   })
 
   bot.on('kicked', reason => log("Kicked: " + reason))
@@ -55,22 +57,6 @@ function createBot() {
     setTimeout(createBot, 5000)
   })
 }
-
-createBot()
-
-// Receive commands from the website
-io.on('connection', socket => {
-
-  // send previous logs when page opens
-  socket.emit('init', logs)
-
-  socket.on('command', cmd => {
-    if(bot){
-      bot.chat(cmd)
-      log("[WEB COMMAND] " + cmd)
-    }
-  })
-})
 
 // Web console page
 app.get('/', (req,res)=>{
@@ -127,6 +113,24 @@ app.get('/', (req,res)=>{
   `)
 })
 
-server.listen(PORT, ()=>{
+// Web socket connection
+io.on('connection', socket => {
+
+  socket.emit('init', logs)
+
+  socket.on('command', cmd => {
+    if(bot){
+      bot.chat(cmd)
+      log("[WEB COMMAND] " + cmd)
+    }
+  })
+
+})
+
+// Start server FIRST (important for Render)
+server.listen(PORT, () => {
   console.log("Web console running on port " + PORT)
+
+  // start bot after server starts
+  createBot()
 })
