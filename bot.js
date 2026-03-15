@@ -17,8 +17,9 @@ const PORT = process.env.PORT || 3000
 let logs = []
 let bot
 let tpInterval = null   // track teleport loop
+let idleChatInterval = null  // periodic idle chatter
 
-function log(message){
+function log(message) {
   console.log(message)
   logs.push(message)
   io.emit('log', message)
@@ -41,8 +42,8 @@ function isDeathMessage(message) {
 
 function isAdvancementMessage(message) {
   return message.includes('has made the advancement') ||
-         message.includes('has completed the challenge') ||
-         message.includes('has reached the goal')
+    message.includes('has completed the challenge') ||
+    message.includes('has reached the goal')
 }
 
 // --- Coordinate query detection ---
@@ -50,10 +51,10 @@ function isAdvancementMessage(message) {
 function isCoordinateQuery(prompt) {
   const lower = prompt.toLowerCase().trim()
   return lower.startsWith('coords') ||
-         lower.startsWith('where is') ||
-         lower.startsWith('where are') ||
-         lower.startsWith('location') ||
-         lower.startsWith('coords of')
+    lower.startsWith('where is') ||
+    lower.startsWith('where are') ||
+    lower.startsWith('location') ||
+    lower.startsWith('coords of')
 }
 
 // --- Bot creation ---
@@ -77,6 +78,10 @@ function createBot() {
       clearInterval(tpInterval)
       tpInterval = null
     }
+    if (idleChatInterval) {
+      clearInterval(idleChatInterval)
+      idleChatInterval = null
+    }
 
     // optional: wait 5 seconds before starting loop
     setTimeout(() => {
@@ -87,6 +92,9 @@ function createBot() {
       }, 600000) // 10 minutes
 
     }, 5000)
+
+    // --- Idle chatter: bot talks on its own every 2-5 minutes ---
+    startIdleChatter()
 
   })
 
@@ -110,8 +118,8 @@ function createBot() {
       memory.addEvent('player_death', message, username)
       log(`[EVENT] Death detected: ${message}`)
 
-      // AI may respond to deaths (30% chance)
-      if (Math.random() < 0.30) {
+      // AI responds to deaths (70% chance)
+      if (Math.random() < 0.90) {
         handleAIResponse(`A player just died: "${message}". Comment on this death.`, username)
       }
     }
@@ -121,8 +129,8 @@ function createBot() {
       memory.addEvent('player_advancement', message, username)
       log(`[EVENT] Advancement detected: ${message}`)
 
-      // AI may respond to advancements (30% chance)
-      if (Math.random() < 0.30) {
+      // AI responds to advancements (70% chance)
+      if (Math.random() < 0.90) {
         handleAIResponse(`A player got an advancement: "${message}". Comment on it.`, username)
       }
     }
@@ -145,22 +153,23 @@ function createBot() {
             const loc = c.locationName ? `${c.locationName}: ` : ''
             return `${loc}${c.coordinates.x} ${c.coordinates.y} ${c.coordinates.z} (from ${c.player})`
           }).join(', ')
-          handleAIResponse(`${username} is asking about coordinates. Here are stored coords: ${coordContext}. The original question was: "${prompt}". Answer using the coordinate data.`, username)
+          handleAIResponse(`Player ${username} is asking about coordinates. Stored coords: ${coordContext}. Their question: "${prompt}". Use coordinate data and your chat memory to answer.`, username)
         } else {
-          handleAIResponse(`${username} asked about coordinates: "${prompt}" but no coordinates are stored in memory yet. Let them know.`, username)
+          handleAIResponse(`Player ${username} asked about coordinates: "${prompt}" but no coordinates are stored yet. Let them know. Check chat memory for any mentioned locations.`, username)
         }
       } else {
-        handleAIResponse(prompt, username)
+        handleAIResponse(`Player ${username} asks: "${prompt}". Use your full chat memory and session knowledge to answer. Reference things from past chat if relevant.`, username)
       }
       return
     }
 
-    // --- RANDOM CHAT COMMENTING: 10% chance ---
-    if (Math.random() < 0.10) {
+
+    // --- RANDOM CHAT COMMENTING: 40% chance ---
+    if (Math.random() < 0.40) {
       log(`[AI] Random comment triggered by ${username}'s message`)
       const recentMsgs = memory.getRecentMessages(10)
       const chatContext = recentMsgs.map(m => `${m.player}: ${m.text}`).join('\n')
-      handleAIResponse(`Here is recent chat:\n${chatContext}\n\nComment on the conversation naturally. You are observing server chat.`, username)
+      handleAIResponse(`Here is recent chat:\n${chatContext}\n\nComment on the conversation naturally. You are observing server chat. Be witty and engaging.`, username)
     }
 
   })
@@ -170,10 +179,14 @@ function createBot() {
 
   bot.on('end', () => {
 
-    // Stop interval when bot disconnects
+    // Stop all intervals when bot disconnects
     if (tpInterval) {
       clearInterval(tpInterval)
       tpInterval = null
+    }
+    if (idleChatInterval) {
+      clearInterval(idleChatInterval)
+      idleChatInterval = null
     }
 
     // Reset all session memory on disconnect
@@ -202,8 +215,42 @@ async function handleAIResponse(prompt, triggerPlayer) {
   }
 }
 
+/**
+ * Idle chatter: the bot periodically comments on its own
+ * every 2-5 minutes if there has been recent chat activity.
+ */
+function startIdleChatter() {
+  // Random interval between 2-5 minutes (120000 - 300000 ms)
+  function scheduleNext() {
+    const delay = 120000 + Math.floor(Math.random() * 180000)
+    idleChatInterval = setTimeout(() => {
+      const recentMsgs = memory.getRecentMessages(15)
+      if (recentMsgs.length > 0 && bot) {
+        log('[AI] Idle chatter triggered')
+        const chatContext = recentMsgs.map(m => `${m.player}: ${m.text}`).join('\n')
+        const events = memory.getEvents().slice(-5)
+        const eventContext = events.length > 0
+          ? '\nRecent events: ' + events.map(e => e.description).join(', ')
+          : ''
+
+        const idlePrompts = [
+          `You are watching server chat. Here is recent activity:\n${chatContext}${eventContext}\n\nSay something unprompted about what you have been observing. Be opinionated and engaging.`,
+          `Recent server chat:\n${chatContext}${eventContext}\n\nDrop a random piece of Minecraft wisdom, strategy tip, or sarcastic observation about what players are doing.`,
+          `Chat log:\n${chatContext}${eventContext}\n\nShare a thought about the server. Maybe brag about your builds, mock someone, or give unsolicited advice.`,
+          `Observing chat:\n${chatContext}${eventContext}\n\nMake a provocative or interesting comment to stir up conversation. Be your usual dominant self.`
+        ]
+
+        const prompt = idlePrompts[Math.floor(Math.random() * idlePrompts.length)]
+        handleAIResponse(prompt, null)
+      }
+      scheduleNext()
+    }, delay)
+  }
+  scheduleNext()
+}
+
 // Web console page
-app.get('/', (req,res)=>{
+app.get('/', (req, res) => {
   res.send(`
   <html>
   <body style="background:black;color:#00ff00;font-family:monospace;padding:20px">
@@ -263,7 +310,7 @@ io.on('connection', socket => {
   socket.emit('init', logs)
 
   socket.on('command', cmd => {
-    if(bot){
+    if (bot) {
       bot.chat(cmd)
       log("[WEB COMMAND] " + cmd)
     }
