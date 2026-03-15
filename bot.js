@@ -6,7 +6,7 @@ const { Server } = require('socket.io')
 // AI modules
 const memory = require('./memory')
 const coordMemory = require('./coordinateMemory')
-const { getAIResponse } = require('./ai')
+const { getAIResponse, splitMessage, MAX_RESPONSE_LENGTH } = require('./ai')
 
 const app = express()
 const server = http.createServer(app)
@@ -18,6 +18,10 @@ let logs = []
 let bot
 let tpInterval = null   // track teleport loop
 let idleChatInterval = null  // periodic idle chatter
+
+// Track pending long responses awaiting player confirmation
+// Map: playerName -> { responseText, timestamp, timeout }
+const pendingLongResponses = new Map()
 
 function log(message) {
   console.log(message)
@@ -138,6 +142,28 @@ function createBot() {
     // Skip self-messages for AI triggers
     if (username === bot.username) return
 
+    // --- CHECK FOR PENDING LONG RESPONSE CONFIRMATION ---
+    const pending = pendingLongResponses.get(username)
+    if (pending) {
+      const lower = message.toLowerCase().trim()
+      const positives = ['yes', 'y', 'ok', 'sure', 'send', 'go ahead', 'do it', 'yeah', 'yep', 'yea', 'ye']
+      const negatives = ['no', 'n', 'cancel', 'dont', "don't", 'nah', 'nope', 'stop']
+
+      if (positives.includes(lower)) {
+        log(`[AI] ${username} confirmed long response — sending ${pending.parts.length} messages`)
+        clearTimeout(pending.timeout)
+        pendingLongResponses.delete(username)
+        sendMultiMessage(pending.parts)
+        return
+      } else if (negatives.includes(lower)) {
+        log(`[AI] ${username} declined long response`)
+        clearTimeout(pending.timeout)
+        pendingLongResponses.delete(username)
+        bot.chat('Alright, keeping it to myself then.')
+        return
+      }
+    }
+
     // --- AI PROMPT TRIGGER: messages starting with ? ---
     if (message.startsWith('?')) {
       const prompt = message.substring(1).trim()
@@ -201,18 +227,68 @@ function createBot() {
 
 /**
  * Handle an AI response asynchronously.
- * Gets the AI response and sends it to Minecraft chat.
+ * If response is short, sends directly.
+ * If response is long, asks the player for permission to send multiple messages.
  */
 async function handleAIResponse(prompt, triggerPlayer) {
   try {
     const response = await getAIResponse(prompt, memory, coordMemory)
-    if (response && bot) {
-      log(`[AI] Response: ${response}`)
+    if (!response || !bot) return
+
+    log(`[AI] Response (${response.length} chars): ${response}`)
+
+    // Short response — send directly
+    if (response.length <= MAX_RESPONSE_LENGTH) {
       bot.chat(response)
+      return
     }
+
+    // Long response — need confirmation from the player
+    const parts = splitMessage(response, MAX_RESPONSE_LENGTH)
+
+    // If no triggerPlayer (idle chat, etc.), just send first part
+    if (!triggerPlayer) {
+      bot.chat(parts[0])
+      return
+    }
+
+    // Store the pending response and ask for permission
+    // Clear any existing pending for this player
+    const existing = pendingLongResponses.get(triggerPlayer)
+    if (existing) clearTimeout(existing.timeout)
+
+    const timeout = setTimeout(() => {
+      pendingLongResponses.delete(triggerPlayer)
+      log(`[AI] Pending response for ${triggerPlayer} expired (30s timeout)`)
+    }, 30000)
+
+    pendingLongResponses.set(triggerPlayer, {
+      parts,
+      responseText: response,
+      timestamp: Date.now(),
+      timeout
+    })
+
+    bot.chat(`That's a long answer (${parts.length} messages). Want me to send it all? Say yes or no.`)
+    log(`[AI] Asked ${triggerPlayer} for permission to send ${parts.length} messages`)
+
   } catch (err) {
     log(`[AI] Error generating response: ${err.message}`)
   }
+}
+
+/**
+ * Send multiple messages sequentially with a 1-second delay between each.
+ */
+function sendMultiMessage(parts) {
+  parts.forEach((part, i) => {
+    setTimeout(() => {
+      if (bot) {
+        bot.chat(part)
+        log(`[AI] Sent part ${i + 1}/${parts.length}: ${part}`)
+      }
+    }, i * 1200) // 1.2s delay between messages
+  })
 }
 
 /**
