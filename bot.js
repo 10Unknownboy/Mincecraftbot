@@ -11,6 +11,7 @@ const PORT = process.env.PORT || 3000
 
 let logs = []
 let bot
+let tpInterval = null   // track teleport loop
 
 function log(message){
   console.log(message)
@@ -27,14 +28,27 @@ function createBot() {
   })
 
   bot.on('spawn', () => {
+
     log('Epstein Entered The Island <3')
 
     bot.chat('Hello Kids, missed me? <3')
 
-    setInterval(() => {
-      bot.chat('/tp Epstein @r')
-      log('Executed: /tp Epstein @r')
-    }, 600000)
+    // prevent duplicate intervals
+    if (tpInterval) {
+      clearInterval(tpInterval)
+      tpInterval = null
+    }
+
+    // optional: wait 5 seconds before starting loop
+    setTimeout(() => {
+
+      tpInterval = setInterval(() => {
+        bot.chat('/tp Epstein @r')
+        log('Executed: /tp Epstein @r')
+      }, 600000) // 10 minutes
+
+    }, 5000)
+
   })
 
   bot.on('chat', (username, message) => {
@@ -53,6 +67,13 @@ function createBot() {
   bot.on('error', err => log("Error: " + err))
 
   bot.on('end', () => {
+
+    // optional safety: stop interval when bot disconnects
+    if (tpInterval) {
+      clearInterval(tpInterval)
+      tpInterval = null
+    }
+
     log('Bot disconnected... reconnecting in 5 seconds')
     setTimeout(createBot, 5000)
   })
@@ -131,6 +152,5 @@ io.on('connection', socket => {
 server.listen(PORT, () => {
   console.log("Web console running on port " + PORT)
 
-  // start bot after server starts
   createBot()
 })
