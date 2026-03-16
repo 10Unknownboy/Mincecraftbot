@@ -6,7 +6,7 @@ const { Server } = require('socket.io')
 // AI modules
 const memory = require('./memory')
 const coordMemory = require('./coordinateMemory')
-const { getAIResponse } = require('./ai')
+const { getAIResponse, splitMessage, MAX_RESPONSE_LENGTH } = require('./ai')
 
 const app = express()
 const server = http.createServer(app)
@@ -19,6 +19,10 @@ let bot
 let tpInterval = null   // track teleport loop
 let idleChatInterval = null  // periodic idle chatter
 let lastWhisperTarget = null // track who was last whispered for the invite
+
+// Track pending long responses awaiting player confirmation
+// Map: playerName -> { responseText, timestamp, timeout }
+const pendingLongResponses = new Map()
 
 
 function log(message) {
@@ -140,6 +144,28 @@ function createBot() {
     // Skip self-messages for AI triggers
     if (username === bot.username) return
 
+    // --- CHECK FOR PENDING LONG RESPONSE CONFIRMATION ---
+    const pending = pendingLongResponses.get(username)
+    if (pending) {
+      const lower = message.toLowerCase().trim()
+      const positives = ['yes', 'y', 'ok', 'sure', 'send', 'go ahead', 'do it', 'yeah', 'yep', 'yea', 'ye']
+      const negatives = ['no', 'n', 'cancel', 'dont', "don't", 'nah', 'nope', 'stop']
+
+      if (positives.includes(lower)) {
+        log(`[AI] ${username} confirmed long response — sending ${pending.parts.length} messages`)
+        clearTimeout(pending.timeout)
+        pendingLongResponses.delete(username)
+        sendMultiMessage(pending.parts)
+        return
+      } else if (negatives.includes(lower)) {
+        log(`[AI] ${username} declined long response — sending only one part`)
+        clearTimeout(pending.timeout)
+        pendingLongResponses.delete(username)
+        bot.chat(pending.parts[0]) // User said No, so send only 1st part
+        return
+      }
+    }
+
     // --- MENTION TRIGGER: "Epstein" mentioned in chat ---
     if (message.toLowerCase().includes('epstein')) {
       log(`[AI] Mentioned by ${username}: ${message}`)
@@ -245,23 +271,92 @@ function createBot() {
 
 /**
  * Handle an AI response asynchronously.
- * Gets the AI response and sends it to Minecraft chat.
+ * Logic:
+ * 1. If response <= 250, send directly.
+ * 2. If prompt asks for "detailed", send all messages immediately.
+ * 3. Otherwise, 30% chance to ask for multi-message permission.
+ * 4. If 30% chance fails, just send the first 250 chars.
  */
 async function handleAIResponse(prompt, triggerPlayer) {
   try {
     const response = await getAIResponse(prompt, memory, coordMemory)
-    if (response && bot) {
-      log(`[AI] Response: ${response}`)
+    if (!response || !bot) return
+
+    log(`[AI] Raw Response (${response.length} chars): ${response}`)
+
+    // Short response — send directly
+    if (response.length <= MAX_RESPONSE_LENGTH) {
       if (triggerPlayer && prompt.includes('WHISPER_INVITE')) {
         bot.whisper(triggerPlayer, response)
         lastWhisperTarget = triggerPlayer
       } else {
         bot.chat(response)
       }
+      return
     }
+
+    // Long response logic
+    const parts = splitMessage(response, MAX_RESPONSE_LENGTH)
+    const lowerPrompt = prompt.toLowerCase()
+    const wantsDetailed = lowerPrompt.includes('detailed') || 
+                        lowerPrompt.includes('explain') || 
+                        lowerPrompt.includes('depth') || 
+                        lowerPrompt.includes('long') || 
+                        lowerPrompt.includes('parts')
+
+    // 1. If explicitly detailed or no player to ask (idle), send all
+    if (wantsDetailed || !triggerPlayer) {
+      log(`[AI] Sending all ${parts.length} messages (Detailed request or Idle)`)
+      sendMultiMessage(parts)
+      return
+    }
+
+    // 2. 30% chance to offer the choice
+    if (Math.random() < 0.3) {
+      // Clear any existing pending for this player
+      const existing = pendingLongResponses.get(triggerPlayer)
+      if (existing) clearTimeout(existing.timeout)
+
+      const timeout = setTimeout(() => {
+        pendingLongResponses.delete(triggerPlayer)
+        log(`[AI] Pending response for ${triggerPlayer} expired (30s timeout)`)
+      }, 30000)
+
+      pendingLongResponses.set(triggerPlayer, {
+        parts,
+        timeout
+      })
+
+      bot.chat(`I have a long answer (${parts.length} messages). Should I send it all? (yes/no)`)
+      log(`[AI] 30% Chance: Asked ${triggerPlayer} for multi-message permission`)
+    } else {
+      // 3. Choice failed, just send 1st part
+      log(`[AI] 30% Choice roll failed. Sending only 1st part.`)
+      if (prompt.includes('WHISPER_INVITE')) {
+        bot.whisper(triggerPlayer, parts[0])
+        lastWhisperTarget = triggerPlayer
+      } else {
+        bot.chat(parts[0])
+      }
+    }
+
   } catch (err) {
     log(`[AI] Error generating response: ${err.message}`)
   }
+}
+
+/**
+ * Send multiple messages sequentially with a 1.2-second delay between each.
+ */
+function sendMultiMessage(parts) {
+  parts.forEach((part, i) => {
+    setTimeout(() => {
+      if (bot) {
+        bot.chat(part)
+        log(`[AI] Sent part ${i + 1}/${parts.length}: ${part}`)
+      }
+    }, i * 1200)
+  })
 }
 
 /**
