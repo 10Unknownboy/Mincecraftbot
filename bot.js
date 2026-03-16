@@ -6,7 +6,7 @@ const { Server } = require('socket.io')
 // AI modules
 const memory = require('./memory')
 const coordMemory = require('./coordinateMemory')
-const { getAIResponse, splitMessage, MAX_RESPONSE_LENGTH } = require('./ai')
+const { getAIResponse } = require('./ai')
 
 const app = express()
 const server = http.createServer(app)
@@ -18,10 +18,8 @@ let logs = []
 let bot
 let tpInterval = null   // track teleport loop
 let idleChatInterval = null  // periodic idle chatter
+let lastWhisperTarget = null // track who was last whispered for the invite
 
-// Track pending long responses awaiting player confirmation
-// Map: playerName -> { responseText, timestamp, timeout }
-const pendingLongResponses = new Map()
 
 function log(message) {
   console.log(message)
@@ -142,27 +140,15 @@ function createBot() {
     // Skip self-messages for AI triggers
     if (username === bot.username) return
 
-    // --- CHECK FOR PENDING LONG RESPONSE CONFIRMATION ---
-    const pending = pendingLongResponses.get(username)
-    if (pending) {
-      const lower = message.toLowerCase().trim()
-      const positives = ['yes', 'y', 'ok', 'sure', 'send', 'go ahead', 'do it', 'yeah', 'yep', 'yea', 'ye']
-      const negatives = ['no', 'n', 'cancel', 'dont', "don't", 'nah', 'nope', 'stop']
-
-      if (positives.includes(lower)) {
-        log(`[AI] ${username} confirmed long response — sending ${pending.parts.length} messages`)
-        clearTimeout(pending.timeout)
-        pendingLongResponses.delete(username)
-        sendMultiMessage(pending.parts)
-        return
-      } else if (negatives.includes(lower)) {
-        log(`[AI] ${username} declined long response`)
-        clearTimeout(pending.timeout)
-        pendingLongResponses.delete(username)
-        bot.chat('Alright, keeping it to myself then.')
-        return
-      }
+    // --- MENTION TRIGGER: "Epstein" mentioned in chat ---
+    if (message.toLowerCase().includes('epstein')) {
+      log(`[AI] Mentioned by ${username}: ${message}`)
+      handleAIResponse(`Player ${username} mentioned you in chat: "${message}". Respond in character.`, username)
+      return
     }
+
+    // --- CHECK FOR PENDING LONG RESPONSE CONFIRMATION ---
+
 
     // --- AI PROMPT TRIGGER: messages starting with ? ---
     if (message.startsWith('?')) {
@@ -200,8 +186,40 @@ function createBot() {
 
   })
 
+  bot.on('whisper', (username, message) => {
+    log(`[WHISPER] ${username}: ${message}`)
+    if (username === bot.username) return
+
+    if (username === lastWhisperTarget) {
+      const lower = message.toLowerCase().trim()
+      if (lower === 'yes' || lower === 'y' || lower.includes('yes')) {
+        bot.chat(`/tp Epstein ${username}`)
+        log(`[WHISPER] Accepted invite from ${username}. Teleporting...`)
+        lastWhisperTarget = null
+      } else if (lower === 'no' || lower === 'n' || lower.includes('no')) {
+        bot.whisper(username, 'Better luck next time.')
+        log(`[WHISPER] Declined invite from ${username}.`)
+        lastWhisperTarget = null
+      }
+    }
+  })
+
   bot.on('kicked', reason => log("Kicked: " + reason))
   bot.on('error', err => log("Error: " + err))
+
+  // --- JOIN/LEAVE EVENTS ---
+  bot.on('playerJoined', (player) => {
+    if (player.username === bot.username) return
+    log(`[EVENT] Player joined: ${player.username}`)
+    memory.addPlayer(player.username)
+    handleAIResponse(`Player ${player.username} just joined the server. Welcome them to the island in your usual creepy/seductive manner.`, player.username)
+  })
+
+  bot.on('playerLeft', (player) => {
+    if (player.username === bot.username) return
+    log(`[EVENT] Player left: ${player.username}`)
+    handleAIResponse(`Player ${player.username} just left the server. Say something sarcastic or mocking about their departure.`, player.username)
+  })
 
   bot.on('end', () => {
 
@@ -227,68 +245,23 @@ function createBot() {
 
 /**
  * Handle an AI response asynchronously.
- * If response is short, sends directly.
- * If response is long, asks the player for permission to send multiple messages.
+ * Gets the AI response and sends it to Minecraft chat.
  */
 async function handleAIResponse(prompt, triggerPlayer) {
   try {
     const response = await getAIResponse(prompt, memory, coordMemory)
-    if (!response || !bot) return
-
-    log(`[AI] Response (${response.length} chars): ${response}`)
-
-    // Short response — send directly
-    if (response.length <= MAX_RESPONSE_LENGTH) {
-      bot.chat(response)
-      return
+    if (response && bot) {
+      log(`[AI] Response: ${response}`)
+      if (triggerPlayer && prompt.includes('WHISPER_INVITE')) {
+        bot.whisper(triggerPlayer, response)
+        lastWhisperTarget = triggerPlayer
+      } else {
+        bot.chat(response)
+      }
     }
-
-    // Long response — need confirmation from the player
-    const parts = splitMessage(response, MAX_RESPONSE_LENGTH)
-
-    // If no triggerPlayer (idle chat, etc.), just send first part
-    if (!triggerPlayer) {
-      bot.chat(parts[0])
-      return
-    }
-
-    // Store the pending response and ask for permission
-    // Clear any existing pending for this player
-    const existing = pendingLongResponses.get(triggerPlayer)
-    if (existing) clearTimeout(existing.timeout)
-
-    const timeout = setTimeout(() => {
-      pendingLongResponses.delete(triggerPlayer)
-      log(`[AI] Pending response for ${triggerPlayer} expired (30s timeout)`)
-    }, 30000)
-
-    pendingLongResponses.set(triggerPlayer, {
-      parts,
-      responseText: response,
-      timestamp: Date.now(),
-      timeout
-    })
-
-    bot.chat(`That's a long answer (${parts.length} messages). Want me to send it all? Say yes or no.`)
-    log(`[AI] Asked ${triggerPlayer} for permission to send ${parts.length} messages`)
-
   } catch (err) {
     log(`[AI] Error generating response: ${err.message}`)
   }
-}
-
-/**
- * Send multiple messages sequentially with a 1-second delay between each.
- */
-function sendMultiMessage(parts) {
-  parts.forEach((part, i) => {
-    setTimeout(() => {
-      if (bot) {
-        bot.chat(part)
-        log(`[AI] Sent part ${i + 1}/${parts.length}: ${part}`)
-      }
-    }, i * 1200) // 1.2s delay between messages
-  })
 }
 
 /**
@@ -313,11 +286,28 @@ function startIdleChatter() {
           `You are watching server chat. Here is recent activity:\n${chatContext}${eventContext}\n\nSay something unprompted about what you have been observing. Be opinionated and engaging.`,
           `Recent server chat:\n${chatContext}${eventContext}\n\nDrop a random piece of Minecraft wisdom, strategy tip, or sarcastic observation about what players are doing.`,
           `Chat log:\n${chatContext}${eventContext}\n\nShare a thought about the server. Maybe brag about your builds, mock someone, or give unsolicited advice.`,
-          `Observing chat:\n${chatContext}${eventContext}\n\nMake a provocative or interesting comment to stir up conversation. Be your usual dominant self.`
+          `Observing chat:\n${chatContext}${eventContext}\n\nMake a provocative or interesting comment to stir up conversation. Be your usual dominant self.`,
+          `WHISPER_INVITE: Generate a secretive, seductive, and creepy whisper invite to "the island". Sound like Epstein. Be cryptic and playful.`
         ]
 
-        const prompt = idlePrompts[Math.floor(Math.random() * idlePrompts.length)]
-        handleAIResponse(prompt, null)
+        const roll = Math.random()
+        let prompt
+        let targetPlayer = null
+
+        // 30% chance to whisper a random player instead of public chat
+        if (roll < 0.3) {
+          const players = memory.getPlayers().filter(p => p !== bot.username)
+          if (players.length > 0) {
+            targetPlayer = players[Math.floor(Math.random() * players.length)]
+            prompt = idlePrompts[4] // WHISPER_INVITE
+          } else {
+            prompt = idlePrompts[Math.floor(Math.random() * 4)] // fall back to public
+          }
+        } else {
+          prompt = idlePrompts[Math.floor(Math.random() * 4)]
+        }
+
+        handleAIResponse(prompt, targetPlayer)
       }
       scheduleNext()
     }, delay)
