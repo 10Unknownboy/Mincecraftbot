@@ -414,16 +414,32 @@ function startIdleChatter() {
 app.get('/', (req, res) => {
   res.send(`
   <html>
-  <body style="background:black;color:#00ff00;font-family:monospace;padding:20px">
+  <head>
+    <title>Epstein Bot Console</title>
+    <style>
+      body { background: black; color: #00ff00; font-family: monospace; padding: 20px; }
+      h2 { border-bottom: 1px solid #00ff00; padding-bottom: 10px; }
+      #console { height: 500px; overflow-y: scroll; border: 1px solid #00ff00; padding: 10px; margin-bottom: 15px; background: #080808; }
+      .log-line { display: flex; justify-content: space-between; border-bottom: 1px solid #111; padding: 2px 0; }
+      .log-msg { flex: 1; overflow-wrap: anywhere; }
+      .log-time { color: #008800; font-size: 0.8em; margin-left: 20px; white-space: nowrap; }
+      .controls { display: flex; gap: 10px; }
+      #cmd { flex: 1; background: black; color: #00ff00; border: 1px solid #00ff00; padding: 8px; }
+      button { background: #004400; color: #00ff00; border: 1px solid #00ff00; padding: 8px 15px; cursor: pointer; }
+      button:hover { background: #006600; }
+    </style>
+  </head>
+  <body>
 
   <h2>Epstein Bot Console</h2>
 
-  <div id="console" style="height:400px;overflow:auto;border:1px solid #00ff00;padding:10px;margin-bottom:10px"></div>
+  <div id="console"></div>
 
-  <input id="cmd" placeholder="Type Minecraft command..." 
-  style="width:80%;background:black;color:#00ff00;border:1px solid #00ff00;padding:5px">
-
-  <button onclick="sendCmd()">Send</button>
+  <div class="controls">
+    <input id="cmd" placeholder="Type Minecraft command..." autocomplete="off">
+    <button onclick="sendCmd()">Send</button>
+    <button onclick="clearConsole()" style="background:#440000; border-color:#ff0000; color:#ff0000;">Clear</button>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
 
@@ -431,17 +447,30 @@ app.get('/', (req, res) => {
   const socket = io()
   const consoleDiv = document.getElementById("console")
 
-  socket.on("init", logs=>{
-    logs.forEach(addLine)
+  socket.on("init", logs => {
+    consoleDiv.innerHTML = ''
+    logs.forEach(msg => addLine(msg))
   })
 
-  socket.on("log", msg=>{
+  socket.on("log", msg => {
     addLine(msg)
   })
 
   function addLine(msg){
     const line = document.createElement("div")
-    line.textContent = msg
+    line.className = "log-line"
+    
+    const textSpan = document.createElement("span")
+    textSpan.className = "log-msg"
+    textSpan.textContent = msg
+    
+    const timeSpan = document.createElement("span")
+    timeSpan.className = "log-time"
+    timeSpan.textContent = new Date().toLocaleTimeString()
+    
+    line.appendChild(textSpan)
+    line.appendChild(timeSpan)
+    
     consoleDiv.appendChild(line)
     consoleDiv.scrollTop = consoleDiv.scrollHeight
   }
@@ -453,6 +482,11 @@ app.get('/', (req, res) => {
       socket.emit("command", cmd)
       input.value=""
     }
+  }
+
+  function clearConsole(){
+    consoleDiv.innerHTML = ''
+    socket.emit("clear-logs")
   }
 
   document.getElementById("cmd").addEventListener("keydown", e=>{
@@ -475,6 +509,11 @@ io.on('connection', socket => {
       bot.chat(cmd)
       log("[WEB COMMAND] " + cmd)
     }
+  })
+
+  socket.on('clear-logs', () => {
+    logs = []
+    log("[SYSTEM] Web console logs cleared")
   })
 
 })
