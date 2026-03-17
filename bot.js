@@ -369,7 +369,9 @@ function startIdleChatter() {
     const delay = 120000 + Math.floor(Math.random() * 180000)
     idleChatInterval = setTimeout(() => {
       const recentMsgs = memory.getRecentMessages(15)
-      if (recentMsgs.length > 0 && bot) {
+      const onlinePlayers = Object.keys(bot.players).filter(name => name !== bot.username)
+
+      if (onlinePlayers.length > 0 && recentMsgs.length > 0 && bot) {
         log('[AI] Idle chatter triggered')
         const chatContext = recentMsgs.map(m => `${m.player}: ${m.text}`).join('\n')
         const events = memory.getEvents().slice(-5)
@@ -391,7 +393,7 @@ function startIdleChatter() {
 
         // 30% chance to whisper a random player instead of public chat
         if (roll < 0.3) {
-          const players = memory.getPlayers().filter(p => p !== bot.username)
+          const players = onlinePlayers
           if (players.length > 0) {
             targetPlayer = players[Math.floor(Math.random() * players.length)]
             prompt = idlePrompts[4] // WHISPER_INVITE
