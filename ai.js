@@ -1,7 +1,7 @@
 // ai.js — OpenRouter AI integration for the Minecraft bot
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
-const MODEL = 'meta-llama/llama-3.3-70b-instruct'
+const MODEL = 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free'
 const MAX_RESPONSE_LENGTH = 250
 
 const SYSTEM_PROMPT = `You are a Minecraft pedophile (Epstein) embedded in a Minecraft server as a bot player. You observe ALL chat messages and server events in real-time and remember everything from this session.
