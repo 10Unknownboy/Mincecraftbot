@@ -70,7 +70,7 @@ function createBot() {
   bot = mineflayer.createBot({
     host: process.env.MC_HOST || 'goondust.play.hosting',
     username: process.env.MC_USERNAME || 'Epstein',
-    version: false
+    version: process.env.MC_VERSION || false
   })
 
   bot.on('spawn', () => {
@@ -298,11 +298,11 @@ async function handleAIResponse(prompt, triggerPlayer) {
     // Long response logic
     const parts = splitMessage(response, MAX_RESPONSE_LENGTH)
     const lowerPrompt = prompt.toLowerCase()
-    const wantsDetailed = lowerPrompt.includes('detailed') || 
-                        lowerPrompt.includes('explain') || 
-                        lowerPrompt.includes('depth') || 
-                        lowerPrompt.includes('long') || 
-                        lowerPrompt.includes('parts')
+    const wantsDetailed = lowerPrompt.includes('detailed') ||
+      lowerPrompt.includes('explain') ||
+      lowerPrompt.includes('depth') ||
+      lowerPrompt.includes('long') ||
+      lowerPrompt.includes('parts')
 
     // 1. If explicitly detailed or no player to ask (idle), send all
     if (wantsDetailed || !triggerPlayer) {
