@@ -69,14 +69,14 @@ function isCoordinateQuery(prompt) {
 function createBot() {
 
   bot = mineflayer.createBot({
-    host: process.env.MC_HOST || 'goondust.play.hosting',
-    username: process.env.MC_USERNAME || 'Lps.Conf',
+    host: process.env.MC_HOST || 'lpsconf.play.hosting',
+    username: process.env.MC_USERNAME || 'sp.singh_',
     version: process.env.MC_VERSION || false
   })
 
   bot.on('spawn', () => {
 
-    log('Lps.Conf Entered The Island <3')
+    log('sp.singh_ Entered The Island <3')
 
     bot.chat('Hello Kids, missed me? <3')
 
@@ -94,8 +94,8 @@ function createBot() {
     setTimeout(() => {
 
       tpInterval = setInterval(() => {
-        bot.chat('/tp Lps.Conf @r')
-        log('Executed: /tp Lps.Conf @r')
+        bot.chat('/tp sp.singh_ @r')
+        log('Executed: /tp sp.singh_ @r')
       }, 600000) // 10 minutes
 
     }, 5000)
@@ -167,8 +167,8 @@ function createBot() {
       }
     }
 
-    // --- MENTION TRIGGER: "Lps.Conf" mentioned in chat ---
-    if (message.toLowerCase().includes('lps.conf')) {
+    // --- MENTION TRIGGER: "sp.singh_" mentioned in chat ---
+    if (message.toLowerCase().includes('sp.singh_')) {
       log(`[AI] Mentioned by ${username}: ${message}`)
       handleAIResponse(`Player ${username} mentioned you in chat: "${message}". Respond in character.`, username)
       return
@@ -220,7 +220,7 @@ function createBot() {
     if (username === lastWhisperTarget) {
       const lower = message.toLowerCase().trim()
       if (lower === 'yes' || lower === 'y' || lower.includes('yes')) {
-        bot.chat(`/tp Lps.Conf ${username}`)
+        bot.chat(`/tp sp.singh_ ${username}`)
         log(`[WHISPER] Accepted invite from ${username}. Teleporting...`)
         lastWhisperTarget = null
       } else if (lower === 'no' || lower === 'n' || lower.includes('no')) {
@@ -392,7 +392,7 @@ function startIdleChatter() {
           `Recent server chat:\n${chatContext}${eventContext}\n\nDrop a random piece of Minecraft wisdom, strategy tip, or sarcastic observation about what players are doing.`,
           `Chat log:\n${chatContext}${eventContext}\n\nShare a thought about the server. Maybe brag about your builds, mock someone, or give unsolicited advice.`,
           `Observing chat:\n${chatContext}${eventContext}\n\nMake a provocative or interesting comment to stir up conversation. Be your usual dominant self.`,
-          `WHISPER_INVITE: Generate a secretive, seductive, and creepy whisper invite to "the island". Sound like Lps.Conf. Be cryptic and playful.`
+          `WHISPER_INVITE: Generate a secretive, seductive, and creepy whisper invite to "the island". Sound like sp.singh_. Be cryptic and playful.`
         ]
 
         const roll = Math.random()
@@ -430,7 +430,7 @@ app.get('/', (req, res) => {
   res.send(`
   <html>
   <head>
-    <title>Lps.Conf Bot Console</title>
+    <title>sp.singh_ Bot Console</title>
     <style>
       body { background: black; color: #00ff00; font-family: monospace; padding: 20px; }
       h2 { border-bottom: 1px solid #00ff00; padding-bottom: 10px; }
@@ -446,7 +446,7 @@ app.get('/', (req, res) => {
   </head>
   <body>
 
-  <h2>Lps.Conf Bot Console</h2>
+  <h2>sp.singh_ Bot Console</h2>
 
   <div id="console"></div>
 
