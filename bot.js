@@ -2,6 +2,8 @@ const mineflayer = require('mineflayer')
 const express = require('express')
 const http = require('http')
 const { Server } = require('socket.io')
+const { mineflayer: mineflayerViewer } = require('prismarine-viewer')
+const { createProxyMiddleware } = require('http-proxy-middleware')
 
 // AI modules
 const memory = require('./memory')
@@ -9,6 +11,7 @@ const coordMemory = require('./coordinateMemory')
 const { getAIResponse, splitMessage, MAX_RESPONSE_LENGTH } = require('./ai')
 
 const app = express()
+app.use('/viewer', createProxyMiddleware({ target: 'http://127.0.0.1:3001', ws: true }))
 const server = http.createServer(app)
 const io = new Server(server)
 
@@ -70,7 +73,7 @@ function createBot() {
 
   bot = mineflayer.createBot({
     host: process.env.MC_HOST || 'lpsconf.play.hosting',
-    username: process.env.MC_USERNAME || 'sp.singh_',
+    username: process.env.MC_USERNAME,
     version: process.env.MC_VERSION || false
   })
 
@@ -79,6 +82,13 @@ function createBot() {
     log('sp.singh_ Entered The Island <3')
 
     bot.chat('Hello Kids, missed me? <3')
+
+    try {
+      mineflayerViewer(bot, { port: 3001, firstPerson: true, prefix: '/viewer' })
+      log('Started Prismarine Viewer on port 3001 with prefix /viewer')
+    } catch (err) {
+      log('Viewer already running or error: ' + err.message)
+    }
 
     // prevent duplicate intervals
     if (moveInterval) {
@@ -467,6 +477,7 @@ app.get('/', (req, res) => {
     <input id="cmd" placeholder="Type Minecraft command..." autocomplete="off">
     <button onclick="sendCmd()">Send</button>
     <button onclick="clearConsole()" style="background:#440000; border-color:#ff0000; color:#ff0000;">Clear</button>
+    <button onclick="window.open('/viewer/', '_blank')" style="background:#000044; border-color:#0000ff; color:#0000ff;">Open Viewer</button>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
