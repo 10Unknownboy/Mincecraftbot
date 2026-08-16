@@ -25,6 +25,7 @@ let lastWhisperTarget = null // track who was last whispered for the invite
 let reconnectDelay = 5000    // dynamic reconnect delay
 let shouldReconnect = true   // toggle to auto reconnect
 let reconnectTimer = null    // track the timeout
+let isConnecting = false     // prevent double connections
 
 // Track pending long responses awaiting player confirmation
 // Map: playerName -> { responseText, timestamp, timeout }
@@ -72,34 +73,39 @@ function isCoordinateQuery(prompt) {
 // --- Bot creation ---
 
 function createBot() {
+  if (isConnecting) return;
+  isConnecting = true;
+
+  const user = process.env.MC_USERNAME || 'sp.singh_'
 
   bot = mineflayer.createBot({
     host: process.env.MC_HOST || 'lpsconf.play.hosting',
-    username: process.env.MC_USERNAME,
+    username: user,
     version: process.env.MC_VERSION || false
   })
 
   bot.on('spawn', () => {
-
+    isConnecting = false;
     log('sp.singh_ Entered The Island <3')
 
     bot.chat('Hello Kids, missed me? <3')
 
     try {
       // Hack to prevent Render from exposing port 3001 externally
-      const originalListen = http.Server.prototype.listen;
-      http.Server.prototype.listen = function(port, callback) {
-        if (port === 3001) {
-          return originalListen.call(this, port, '127.0.0.1', callback);
+      const net = require('net');
+      const originalListen = net.Server.prototype.listen;
+      net.Server.prototype.listen = function(...args) {
+        if (args[0] === 3001) {
+          args.splice(1, 0, '127.0.0.1');
         }
-        return originalListen.apply(this, arguments);
+        return originalListen.apply(this, args);
       };
 
       mineflayerViewer(bot, { port: 3001, firstPerson: true, prefix: '/viewer' })
       log('Started Prismarine Viewer on port 3001 with prefix /viewer')
       
       // Restore original listen just in case
-      http.Server.prototype.listen = originalListen;
+      net.Server.prototype.listen = originalListen;
     } catch (err) {
       log('Viewer already running or error: ' + err.message)
     }
@@ -292,7 +298,7 @@ function createBot() {
   })
 
   bot.on('end', () => {
-
+    isConnecting = false;
     // Stop all intervals when bot disconnects
     if (moveInterval) {
       clearInterval(moveInterval)
@@ -309,9 +315,13 @@ function createBot() {
     log('[MEMORY] Session memory cleared on disconnect')
 
     if (shouldReconnect) {
+      if (reconnectTimer) clearTimeout(reconnectTimer)
       log(`Bot disconnected... reconnecting in ${reconnectDelay / 1000} seconds`)
       bot = null
-      reconnectTimer = setTimeout(createBot, reconnectDelay)
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        createBot()
+      }, reconnectDelay)
       reconnectDelay = 5000 // reset to default for next time
     } else {
       bot = null
