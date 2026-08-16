@@ -69,13 +69,13 @@ function createBot() {
 
   bot = mineflayer.createBot({
     host: process.env.MC_HOST || 'goondust.play.hosting',
-    username: process.env.MC_USERNAME || 'Epstein',
+    username: process.env.MC_USERNAME || 'Lps.Conf',
     version: process.env.MC_VERSION || false
   })
 
   bot.on('spawn', () => {
 
-    log('Epstein Entered The Island <3')
+    log('Lps.Conf Entered The Island <3')
 
     bot.chat('Hello Kids, missed me? <3')
 
@@ -93,8 +93,8 @@ function createBot() {
     setTimeout(() => {
 
       tpInterval = setInterval(() => {
-        bot.chat('/tp Epstein @r')
-        log('Executed: /tp Epstein @r')
+        bot.chat('/tp Lps.Conf @r')
+        log('Executed: /tp Lps.Conf @r')
       }, 600000) // 10 minutes
 
     }, 5000)
@@ -166,8 +166,8 @@ function createBot() {
       }
     }
 
-    // --- MENTION TRIGGER: "Epstein" mentioned in chat ---
-    if (message.toLowerCase().includes('epstein')) {
+    // --- MENTION TRIGGER: "Lps.Conf" mentioned in chat ---
+    if (message.toLowerCase().includes('lps.conf')) {
       log(`[AI] Mentioned by ${username}: ${message}`)
       handleAIResponse(`Player ${username} mentioned you in chat: "${message}". Respond in character.`, username)
       return
@@ -219,7 +219,7 @@ function createBot() {
     if (username === lastWhisperTarget) {
       const lower = message.toLowerCase().trim()
       if (lower === 'yes' || lower === 'y' || lower.includes('yes')) {
-        bot.chat(`/tp Epstein ${username}`)
+        bot.chat(`/tp Lps.Conf ${username}`)
         log(`[WHISPER] Accepted invite from ${username}. Teleporting...`)
         lastWhisperTarget = null
       } else if (lower === 'no' || lower === 'n' || lower.includes('no')) {
@@ -384,7 +384,7 @@ function startIdleChatter() {
           `Recent server chat:\n${chatContext}${eventContext}\n\nDrop a random piece of Minecraft wisdom, strategy tip, or sarcastic observation about what players are doing.`,
           `Chat log:\n${chatContext}${eventContext}\n\nShare a thought about the server. Maybe brag about your builds, mock someone, or give unsolicited advice.`,
           `Observing chat:\n${chatContext}${eventContext}\n\nMake a provocative or interesting comment to stir up conversation. Be your usual dominant self.`,
-          `WHISPER_INVITE: Generate a secretive, seductive, and creepy whisper invite to "the island". Sound like Epstein. Be cryptic and playful.`
+          `WHISPER_INVITE: Generate a secretive, seductive, and creepy whisper invite to "the island". Sound like Lps.Conf. Be cryptic and playful.`
         ]
 
         const roll = Math.random()
@@ -412,12 +412,17 @@ function startIdleChatter() {
   scheduleNext()
 }
 
+// Health check endpoint for UptimeRobot
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
 // Web console page
 app.get('/', (req, res) => {
   res.send(`
   <html>
   <head>
-    <title>Epstein Bot Console</title>
+    <title>Lps.Conf Bot Console</title>
     <style>
       body { background: black; color: #00ff00; font-family: monospace; padding: 20px; }
       h2 { border-bottom: 1px solid #00ff00; padding-bottom: 10px; }
@@ -433,7 +438,7 @@ app.get('/', (req, res) => {
   </head>
   <body>
 
-  <h2>Epstein Bot Console</h2>
+  <h2>Lps.Conf Bot Console</h2>
 
   <div id="console"></div>
 
