@@ -86,8 +86,20 @@ function createBot() {
     bot.chat('Hello Kids, missed me? <3')
 
     try {
+      // Hack to prevent Render from exposing port 3001 externally
+      const originalListen = http.Server.prototype.listen;
+      http.Server.prototype.listen = function(port, callback) {
+        if (port === 3001) {
+          return originalListen.call(this, port, '127.0.0.1', callback);
+        }
+        return originalListen.apply(this, arguments);
+      };
+
       mineflayerViewer(bot, { port: 3001, firstPerson: true, prefix: '/viewer' })
       log('Started Prismarine Viewer on port 3001 with prefix /viewer')
+      
+      // Restore original listen just in case
+      http.Server.prototype.listen = originalListen;
     } catch (err) {
       log('Viewer already running or error: ' + err.message)
     }

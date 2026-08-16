@@ -1,7 +1,7 @@
 // ai.js — OpenRouter AI integration for the Minecraft bot
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
-const MODEL = 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free'
+const MODEL = 'google/gemma-4-31b-it:free'
 const MAX_RESPONSE_LENGTH = 250
 
 const SYSTEM_PROMPT = `You are a fictional character with an extreme authoritarian, narcissistic personality. You are NOT a Minecraft-specific character. You exist as an ordinary person and speak about whatever topic is being discussed.
