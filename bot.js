@@ -23,6 +23,8 @@ let moveInterval = null   // track teleport loop
 let idleChatInterval = null  // periodic idle chatter
 let lastWhisperTarget = null // track who was last whispered for the invite
 let reconnectDelay = 5000    // dynamic reconnect delay
+let shouldReconnect = true   // toggle to auto reconnect
+let reconnectTimer = null    // track the timeout
 
 // Track pending long responses awaiting player confirmation
 // Map: playerName -> { responseText, timestamp, timeout }
@@ -294,9 +296,15 @@ function createBot() {
     coordMemory.resetCoordinates()
     log('[MEMORY] Session memory cleared on disconnect')
 
-    log(`Bot disconnected... reconnecting in ${reconnectDelay / 1000} seconds`)
-    setTimeout(createBot, reconnectDelay)
-    reconnectDelay = 5000 // reset to default for next time
+    if (shouldReconnect) {
+      log(`Bot disconnected... reconnecting in ${reconnectDelay / 1000} seconds`)
+      bot = null
+      reconnectTimer = setTimeout(createBot, reconnectDelay)
+      reconnectDelay = 5000 // reset to default for next time
+    } else {
+      bot = null
+      log(`Bot disconnected... reconnect is currently PAUSED.`)
+    }
   })
 }
 
@@ -478,6 +486,7 @@ app.get('/', (req, res) => {
     <button onclick="sendCmd()">Send</button>
     <button onclick="clearConsole()" style="background:#440000; border-color:#ff0000; color:#ff0000;">Clear</button>
     <button onclick="window.open('/viewer/', '_blank')" style="background:#000044; border-color:#0000ff; color:#0000ff;">Open Viewer</button>
+    <button id="reconnectBtn" onclick="toggleReconnect()" style="background:#444400; border-color:#ffff00; color:#ffff00;">Stop Reconnecting</button>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -531,6 +540,14 @@ app.get('/', (req, res) => {
   document.getElementById("cmd").addEventListener("keydown", e=>{
     if(e.key === "Enter") sendCmd()
   })
+
+  let isReconnecting = true;
+  function toggleReconnect() {
+    isReconnecting = !isReconnecting;
+    const btn = document.getElementById("reconnectBtn");
+    btn.textContent = isReconnecting ? "Stop Reconnecting" : "Start Reconnecting";
+    socket.emit("toggle-reconnect", isReconnecting);
+  }
   </script>
 
   </body>
@@ -553,6 +570,24 @@ io.on('connection', socket => {
   socket.on('clear-logs', () => {
     logs = []
     log("[SYSTEM] Web console logs cleared")
+  })
+
+  socket.on('toggle-reconnect', (reconnect) => {
+    shouldReconnect = reconnect
+    log(`[SYSTEM] Auto-reconnect is now ${reconnect ? 'ENABLED' : 'DISABLED'}`)
+    
+    // If it was waiting to reconnect and we disabled it, clear the timer
+    if (!shouldReconnect && reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+      log('[SYSTEM] Cancelled pending reconnect attempt.')
+    }
+    
+    // If it was paused and bot is dead/disconnected, we can try to start it immediately or just wait
+    if (shouldReconnect && !bot) {
+      log('[SYSTEM] Starting bot connection...')
+      createBot()
+    }
   })
 
 })

@@ -15,6 +15,7 @@
   },
   "type": "commonjs",
   "dependencies": {
+    "canvas": "^3.2.3",
     "express": "^5.2.1",
     "http-proxy-middleware": "^4.2.0",
     "minecraft-protocol": "^1.64.0",
