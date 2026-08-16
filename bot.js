@@ -19,6 +19,7 @@ let bot
 let tpInterval = null   // track teleport loop
 let idleChatInterval = null  // periodic idle chatter
 let lastWhisperTarget = null // track who was last whispered for the invite
+let reconnectDelay = 5000    // dynamic reconnect delay
 
 // Track pending long responses awaiting player confirmation
 // Map: playerName -> { responseText, timestamp, timeout }
@@ -68,7 +69,7 @@ function isCoordinateQuery(prompt) {
 function createBot() {
 
   bot = mineflayer.createBot({
-    host: process.env.MC_HOST || 'lpsconf.play.hosting',
+    host: process.env.MC_HOST || 'goondust.play.hosting',
     username: process.env.MC_USERNAME || 'Lps.Conf',
     version: process.env.MC_VERSION || false
   })
@@ -230,7 +231,13 @@ function createBot() {
     }
   })
 
-  bot.on('kicked', reason => log("Kicked: " + reason))
+  bot.on('kicked', reason => {
+    log("Kicked: " + reason)
+    if (String(reason).includes('duplicate_login')) {
+      log('[SYSTEM] Duplicate login detected. Increasing reconnect delay to 30 seconds.')
+      reconnectDelay = 30000
+    }
+  })
   bot.on('error', err => log("Error: " + err))
 
   // --- JOIN/LEAVE EVENTS ---
@@ -264,8 +271,9 @@ function createBot() {
     coordMemory.resetCoordinates()
     log('[MEMORY] Session memory cleared on disconnect')
 
-    log('Bot disconnected... reconnecting in 5 seconds')
-    setTimeout(createBot, 5000)
+    log(`Bot disconnected... reconnecting in ${reconnectDelay / 1000} seconds`)
+    setTimeout(createBot, reconnectDelay)
+    reconnectDelay = 5000 // reset to default for next time
   })
 }
 
