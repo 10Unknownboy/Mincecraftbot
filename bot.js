@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 3000
 
 let logs = []
 let bot
-let tpInterval = null   // track teleport loop
+let moveInterval = null   // track teleport loop
 let idleChatInterval = null  // periodic idle chatter
 let lastWhisperTarget = null // track who was last whispered for the invite
 let reconnectDelay = 5000    // dynamic reconnect delay
@@ -81,9 +81,9 @@ function createBot() {
     bot.chat('Hello Kids, missed me? <3')
 
     // prevent duplicate intervals
-    if (tpInterval) {
-      clearInterval(tpInterval)
-      tpInterval = null
+    if (moveInterval) {
+      clearInterval(moveInterval)
+      moveInterval = null
     }
     if (idleChatInterval) {
       clearInterval(idleChatInterval)
@@ -93,10 +93,23 @@ function createBot() {
     // optional: wait 5 seconds before starting loop
     setTimeout(() => {
 
-      tpInterval = setInterval(() => {
-        bot.chat('/tp sp.singh_ @r')
-        log('Executed: /tp sp.singh_ @r')
-      }, 600000) // 10 minutes
+      moveInterval = setInterval(() => {
+        // Random movement
+        const yaw = Math.random() * Math.PI * 2
+        bot.look(yaw, 0)
+        bot.setControlState('forward', true)
+        
+        if (Math.random() < 0.5) {
+          bot.setControlState('jump', true)
+        }
+
+        // Stop moving after 1-3 seconds
+        setTimeout(() => {
+          bot.clearControlStates()
+        }, 1000 + Math.random() * 2000)
+
+        log('Executed: random movement')
+      }, 30000) // 30 seconds
 
     }, 5000)
 
@@ -220,8 +233,8 @@ function createBot() {
     if (username === lastWhisperTarget) {
       const lower = message.toLowerCase().trim()
       if (lower === 'yes' || lower === 'y' || lower.includes('yes')) {
-        bot.chat(`/tp sp.singh_ ${username}`)
-        log(`[WHISPER] Accepted invite from ${username}. Teleporting...`)
+        bot.whisper(username, 'I am on my way...')
+        log(`[WHISPER] Accepted invite from ${username}.`)
         lastWhisperTarget = null
       } else if (lower === 'no' || lower === 'n' || lower.includes('no')) {
         bot.whisper(username, 'Better luck next time.')
@@ -257,9 +270,9 @@ function createBot() {
   bot.on('end', () => {
 
     // Stop all intervals when bot disconnects
-    if (tpInterval) {
-      clearInterval(tpInterval)
-      tpInterval = null
+    if (moveInterval) {
+      clearInterval(moveInterval)
+      moveInterval = null
     }
     if (idleChatInterval) {
       clearInterval(idleChatInterval)
