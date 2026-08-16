@@ -81,18 +81,11 @@ function createBot() {
 
   bot.on('spawn', () => {
     isConnecting = false;
+    reconnectDelay = 5000; // Reset delay after successful connection
     log('sp.singh_ Entered The Island <3')
 
     bot.chat('Hello Kids, missed me? <3')
 
-    try {
-      if (!bot.viewer) {
-        setupViewer(bot)
-        log('Started integrated Prismarine Viewer on /viewer')
-      }
-    } catch (err) {
-      log('Viewer already running or error: ' + err.message)
-    }
 
     // prevent duplicate intervals
     if (moveInterval) {
@@ -241,8 +234,10 @@ function createBot() {
   bot.on('kicked', reason => {
     log("Kicked: " + reason)
     if (String(reason).includes('duplicate_login')) {
-      log('[SYSTEM] Duplicate login detected. Increasing reconnect delay to 30 seconds.')
-      reconnectDelay = 30000
+      // Add 30 seconds to the delay (up to a max so it doesn't get ridiculous)
+      reconnectDelay += 30000
+      if (reconnectDelay > 300000) reconnectDelay = 300000 // cap at 5 minutes
+      log(`[SYSTEM] Duplicate login detected. Reconnect delay is now ${reconnectDelay / 1000} seconds.`)
     }
   })
   bot.on('error', err => log("Error: " + err))
@@ -286,7 +281,6 @@ function createBot() {
         reconnectTimer = null
         createBot()
       }, reconnectDelay)
-      reconnectDelay = 5000 // reset to default for next time
     } else {
       bot = null
       log(`Bot disconnected... reconnect is currently PAUSED.`)
@@ -423,7 +417,6 @@ app.get('/', (req, res) => {
     <input id="cmd" placeholder="Type Minecraft command..." autocomplete="off">
     <button onclick="sendCmd()">Send</button>
     <button onclick="clearConsole()" style="background:#440000; border-color:#ff0000; color:#ff0000;">Clear</button>
-    <button onclick="window.open('/viewer/', '_blank')" style="background:#000044; border-color:#0000ff; color:#0000ff;">Open Viewer</button>
     <button id="reconnectBtn" onclick="toggleReconnect()" style="background:#444400; border-color:#ffff00; color:#ffff00;">Stop Reconnecting</button>
   </div>
 
@@ -538,78 +531,3 @@ server.listen(PORT, () => {
 
   createBot()
 })
-
-const { WorldView } = require('prismarine-viewer/viewer')
-const EventEmitter = require('events')
-
-let viewerIo = null
-let viewerSockets = []
-
-function initViewerServer() {
-  if (viewerIo) return
-  const prefix = '/viewer'
-  const { setupRoutes } = require('prismarine-viewer/lib/common')
-  setupRoutes(app, prefix)
-  viewerIo = new Server(server, { path: prefix + '/socket.io' })
-}
-
-function setupViewer(bot) {
-  initViewerServer()
-  
-  // Close existing viewer connections before attaching new bot
-  for (const socket of viewerSockets) socket.disconnect()
-  viewerIo.removeAllListeners('connection')
-  viewerSockets = []
-  
-  const primitives = {}
-  bot.viewer = new EventEmitter()
-
-  bot.viewer.erase = (id) => {
-    delete primitives[id]
-    for (const socket of viewerSockets) socket.emit('primitive', { id })
-  }
-  bot.viewer.drawBoxGrid = (id, start, end, color = 'aqua') => {
-    primitives[id] = { type: 'boxgrid', id, start, end, color }
-    for (const socket of viewerSockets) socket.emit('primitive', primitives[id])
-  }
-  bot.viewer.drawLine = (id, points, color = 0xff0000) => {
-    primitives[id] = { type: 'line', id, points, color }
-    for (const socket of viewerSockets) socket.emit('primitive', primitives[id])
-  }
-  bot.viewer.drawPoints = (id, points, color = 0xff0000, size = 5) => {
-    primitives[id] = { type: 'points', id, points, color, size }
-    for (const socket of viewerSockets) socket.emit('primitive', primitives[id])
-  }
-
-  viewerIo.on('connection', (socket) => {
-    socket.emit('version', bot.version)
-    viewerSockets.push(socket)
-
-    const worldView = new WorldView(bot.world, 6, bot.entity.position, socket)
-    worldView.init(bot.entity.position)
-
-    worldView.on('blockClicked', (block, face, button) => {
-      bot.viewer.emit('blockClicked', block, face, button)
-    })
-
-    for (const id in primitives) socket.emit('primitive', primitives[id])
-
-    function botPosition () {
-      const packet = { pos: bot.entity.position, yaw: bot.entity.yaw, addMesh: true, pitch: bot.entity.pitch }
-      socket.emit('position', packet)
-      worldView.updatePosition(bot.entity.position)
-    }
-
-    bot.on('move', botPosition)
-    worldView.listenToBot(bot)
-    socket.on('disconnect', () => {
-      bot.removeListener('move', botPosition)
-      worldView.removeListenersFromBot(bot)
-      viewerSockets.splice(viewerSockets.indexOf(socket), 1)
-    })
-  })
-
-  bot.viewer.close = () => {
-    for (const socket of viewerSockets) socket.disconnect()
-  }
-}

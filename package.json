@@ -10,17 +10,11 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "engines": {
-    "node": "20.x"
-  },
   "type": "commonjs",
   "dependencies": {
-    "canvas": "^3.2.3",
     "express": "^5.2.1",
-    "http-proxy-middleware": "^4.2.0",
     "minecraft-protocol": "^1.64.0",
     "mineflayer": "^4.35.0",
-    "prismarine-viewer": "^1.33.0",
     "socket.io": "^4.8.3"
   }
 }
