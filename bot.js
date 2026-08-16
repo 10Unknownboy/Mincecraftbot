@@ -2,8 +2,6 @@ const mineflayer = require('mineflayer')
 const express = require('express')
 const http = require('http')
 const { Server } = require('socket.io')
-const { mineflayer: mineflayerViewer } = require('prismarine-viewer')
-const { createProxyMiddleware } = require('http-proxy-middleware')
 
 // AI modules
 const memory = require('./memory')
@@ -11,7 +9,6 @@ const coordMemory = require('./coordinateMemory')
 const { getAIResponse, splitMessage, MAX_RESPONSE_LENGTH } = require('./ai')
 
 const app = express()
-app.use('/viewer', createProxyMiddleware({ target: 'http://127.0.0.1:3001', ws: true }))
 const server = http.createServer(app)
 const io = new Server(server)
 
@@ -27,9 +24,7 @@ let shouldReconnect = true   // toggle to auto reconnect
 let reconnectTimer = null    // track the timeout
 let isConnecting = false     // prevent double connections
 
-// Track pending long responses awaiting player confirmation
-// Map: playerName -> { responseText, timestamp, timeout }
-const pendingLongResponses = new Map()
+
 
 
 function log(message) {
@@ -91,21 +86,10 @@ function createBot() {
     bot.chat('Hello Kids, missed me? <3')
 
     try {
-      // Hack to prevent Render from exposing port 3001 externally
-      const net = require('net');
-      const originalListen = net.Server.prototype.listen;
-      net.Server.prototype.listen = function(...args) {
-        if (args[0] === 3001) {
-          args.splice(1, 0, '127.0.0.1');
-        }
-        return originalListen.apply(this, args);
-      };
-
-      mineflayerViewer(bot, { port: 3001, firstPerson: true, prefix: '/viewer' })
-      log('Started Prismarine Viewer on port 3001 with prefix /viewer')
-      
-      // Restore original listen just in case
-      net.Server.prototype.listen = originalListen;
+      if (!bot.viewer) {
+        setupViewer(bot)
+        log('Started integrated Prismarine Viewer on /viewer')
+      }
     } catch (err) {
       log('Viewer already running or error: ' + err.message)
     }
@@ -188,27 +172,7 @@ function createBot() {
     // Skip self-messages for AI triggers
     if (username === bot.username) return
 
-    // --- CHECK FOR PENDING LONG RESPONSE CONFIRMATION ---
-    const pending = pendingLongResponses.get(username)
-    if (pending) {
-      const lower = message.toLowerCase().trim()
-      const positives = ['yes', 'y', 'ok', 'sure', 'send', 'go ahead', 'do it', 'yeah', 'yep', 'yea', 'ye']
-      const negatives = ['no', 'n', 'cancel', 'dont', "don't", 'nah', 'nope', 'stop']
 
-      if (positives.includes(lower)) {
-        log(`[AI] ${username} confirmed long response — sending ${pending.parts.length} messages`)
-        clearTimeout(pending.timeout)
-        pendingLongResponses.delete(username)
-        sendMultiMessage(pending.parts)
-        return
-      } else if (negatives.includes(lower)) {
-        log(`[AI] ${username} declined long response — sending only one part`)
-        clearTimeout(pending.timeout)
-        pendingLongResponses.delete(username)
-        bot.chat(pending.parts[0]) // User said No, so send only 1st part
-        return
-      }
-    }
 
     // --- MENTION TRIGGER: "sp.singh_" mentioned in chat ---
     if (message.toLowerCase().includes('sp.singh_')) {
@@ -356,68 +320,20 @@ async function handleAIResponse(prompt, triggerPlayer) {
       return
     }
 
-    // Long response logic
+    // Long response logic - just send the first part and limit the message
     const parts = splitMessage(response, MAX_RESPONSE_LENGTH)
-    const lowerPrompt = prompt.toLowerCase()
-    const wantsDetailed = lowerPrompt.includes('detailed') ||
-      lowerPrompt.includes('explain') ||
-      lowerPrompt.includes('depth') ||
-      lowerPrompt.includes('long') ||
-      lowerPrompt.includes('parts')
-
-    // 1. If explicitly detailed or no player to ask (idle), send all
-    if (wantsDetailed || !triggerPlayer) {
-      log(`[AI] Sending all ${parts.length} messages (Detailed request or Idle)`)
-      sendMultiMessage(parts)
-      return
-    }
-
-    // 2. 30% chance to offer the choice
-    if (Math.random() < 0.3) {
-      // Clear any existing pending for this player
-      const existing = pendingLongResponses.get(triggerPlayer)
-      if (existing) clearTimeout(existing.timeout)
-
-      const timeout = setTimeout(() => {
-        pendingLongResponses.delete(triggerPlayer)
-        log(`[AI] Pending response for ${triggerPlayer} expired (30s timeout)`)
-      }, 30000)
-
-      pendingLongResponses.set(triggerPlayer, {
-        parts,
-        timeout
-      })
-
-      bot.chat(`I have a long answer (${parts.length} messages). Should I send it all? (yes/no)`)
-      log(`[AI] 30% Chance: Asked ${triggerPlayer} for multi-message permission`)
+    
+    log(`[AI] Response too long, sending only the first part.`)
+    if (triggerPlayer && prompt.includes('WHISPER_INVITE')) {
+      bot.whisper(triggerPlayer, parts[0])
+      lastWhisperTarget = triggerPlayer
     } else {
-      // 3. Choice failed, just send 1st part
-      log(`[AI] 30% Choice roll failed. Sending only 1st part.`)
-      if (prompt.includes('WHISPER_INVITE')) {
-        bot.whisper(triggerPlayer, parts[0])
-        lastWhisperTarget = triggerPlayer
-      } else {
-        bot.chat(parts[0])
-      }
+      bot.chat(parts[0])
     }
 
   } catch (err) {
     log(`[AI] Error generating response: ${err.message}`)
   }
-}
-
-/**
- * Send multiple messages sequentially with a 1.2-second delay between each.
- */
-function sendMultiMessage(parts) {
-  parts.forEach((part, i) => {
-    setTimeout(() => {
-      if (bot) {
-        bot.chat(part)
-        log(`[AI] Sent part ${i + 1}/${parts.length}: ${part}`)
-      }
-    }, i * 1200)
-  })
 }
 
 /**
@@ -583,9 +499,11 @@ io.on('connection', socket => {
   socket.emit('init', logs)
 
   socket.on('command', cmd => {
-    if (bot) {
+    if (bot && bot.entity) {
       bot.chat(cmd)
       log("[WEB COMMAND] " + cmd)
+    } else {
+      log("[SYSTEM] Bot is not spawned yet. Please wait.")
     }
   })
 
@@ -620,3 +538,78 @@ server.listen(PORT, () => {
 
   createBot()
 })
+
+const { WorldView } = require('prismarine-viewer/viewer')
+const EventEmitter = require('events')
+
+let viewerIo = null
+let viewerSockets = []
+
+function initViewerServer() {
+  if (viewerIo) return
+  const prefix = '/viewer'
+  const { setupRoutes } = require('prismarine-viewer/lib/common')
+  setupRoutes(app, prefix)
+  viewerIo = new Server(server, { path: prefix + '/socket.io' })
+}
+
+function setupViewer(bot) {
+  initViewerServer()
+  
+  // Close existing viewer connections before attaching new bot
+  for (const socket of viewerSockets) socket.disconnect()
+  viewerIo.removeAllListeners('connection')
+  viewerSockets = []
+  
+  const primitives = {}
+  bot.viewer = new EventEmitter()
+
+  bot.viewer.erase = (id) => {
+    delete primitives[id]
+    for (const socket of viewerSockets) socket.emit('primitive', { id })
+  }
+  bot.viewer.drawBoxGrid = (id, start, end, color = 'aqua') => {
+    primitives[id] = { type: 'boxgrid', id, start, end, color }
+    for (const socket of viewerSockets) socket.emit('primitive', primitives[id])
+  }
+  bot.viewer.drawLine = (id, points, color = 0xff0000) => {
+    primitives[id] = { type: 'line', id, points, color }
+    for (const socket of viewerSockets) socket.emit('primitive', primitives[id])
+  }
+  bot.viewer.drawPoints = (id, points, color = 0xff0000, size = 5) => {
+    primitives[id] = { type: 'points', id, points, color, size }
+    for (const socket of viewerSockets) socket.emit('primitive', primitives[id])
+  }
+
+  viewerIo.on('connection', (socket) => {
+    socket.emit('version', bot.version)
+    viewerSockets.push(socket)
+
+    const worldView = new WorldView(bot.world, 6, bot.entity.position, socket)
+    worldView.init(bot.entity.position)
+
+    worldView.on('blockClicked', (block, face, button) => {
+      bot.viewer.emit('blockClicked', block, face, button)
+    })
+
+    for (const id in primitives) socket.emit('primitive', primitives[id])
+
+    function botPosition () {
+      const packet = { pos: bot.entity.position, yaw: bot.entity.yaw, addMesh: true, pitch: bot.entity.pitch }
+      socket.emit('position', packet)
+      worldView.updatePosition(bot.entity.position)
+    }
+
+    bot.on('move', botPosition)
+    worldView.listenToBot(bot)
+    socket.on('disconnect', () => {
+      bot.removeListener('move', botPosition)
+      worldView.removeListenersFromBot(bot)
+      viewerSockets.splice(viewerSockets.indexOf(socket), 1)
+    })
+  })
+
+  bot.viewer.close = () => {
+    for (const socket of viewerSockets) socket.disconnect()
+  }
+}
