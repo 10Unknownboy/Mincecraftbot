@@ -68,7 +68,7 @@ function isCoordinateQuery(prompt) {
 function createBot() {
 
   bot = mineflayer.createBot({
-    host: process.env.MC_HOST || 'goondust.play.hosting',
+    host: process.env.MC_HOST || 'lpsconf.play.hosting',
     username: process.env.MC_USERNAME || 'Lps.Conf',
     version: process.env.MC_VERSION || false
   })
