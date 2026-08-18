@@ -74,7 +74,7 @@ function createBot() {
   const user = process.env.MC_USERNAME || 'sp.singh_'
 
   bot = mineflayer.createBot({
-    host: process.env.MC_HOST || 'lpsconf.play.hosting',
+    host: process.env.MC_HOST || 'lpsconf.falix.gg',
     username: user,
     version: process.env.MC_VERSION || false
   })
@@ -120,9 +120,6 @@ function createBot() {
 
     }, 5000)
 
-    // --- Idle chatter: bot talks on its own every 2-5 minutes ---
-    startIdleChatter()
-
   })
 
   bot.on('chat', (username, message) => {
@@ -144,71 +141,38 @@ function createBot() {
     if (isDeathMessage(message)) {
       memory.addEvent('player_death', message, username)
       log(`[EVENT] Death detected: ${message}`)
-
-      // AI responds to deaths (70% chance)
-      if (Math.random() < 0.90) {
-        handleAIResponse(`A player just died: "${message}". Comment on this death.`, username)
-      }
+      handleAIResponse(`A player just died: "${message}". Comment on this death.`, username)
     }
 
     // --- Detect advancement events ---
     if (isAdvancementMessage(message)) {
       memory.addEvent('player_advancement', message, username)
       log(`[EVENT] Advancement detected: ${message}`)
-
-      // AI responds to advancements (70% chance)
-      if (Math.random() < 0.90) {
-        handleAIResponse(`A player got an advancement: "${message}". Comment on it.`, username)
-      }
+      handleAIResponse(`A player got an advancement: "${message}". Comment on it.`, username)
     }
 
     // Skip self-messages for AI triggers
     if (username === bot.username) return
 
-
-
     // --- MENTION TRIGGER: "sp.singh_" mentioned in chat ---
-    if (message.toLowerCase().includes('sp.singh_')) {
+    if (message.toLowerCase().includes('sp.singh_') || message.toLowerCase().includes('singh')) {
       log(`[AI] Mentioned by ${username}: ${message}`)
-      handleAIResponse(`Player ${username} mentioned you in chat: "${message}". Respond in character.`, username)
-      return
-    }
-
-    // --- CHECK FOR PENDING LONG RESPONSE CONFIRMATION ---
-
-
-    // --- AI PROMPT TRIGGER: messages starting with ? ---
-    if (message.startsWith('?')) {
-      const prompt = message.substring(1).trim()
-      if (prompt.length === 0) return
-
-      log(`[AI] Prompt from ${username}: ${prompt}`)
-
-      // Check if this is a coordinate query
-      if (isCoordinateQuery(prompt)) {
-        const results = coordMemory.searchCoordinates(prompt.replace(/^(coords|where is|where are|location|coords of)\s*/i, '').trim())
+      
+      // Check if this is a coordinate query masquerading as a mention
+      if (isCoordinateQuery(message)) {
+        const results = coordMemory.searchCoordinates(message.replace(/^(coords|where is|where are|location|coords of)\s*/i, '').trim())
         if (results.length > 0) {
           const coordContext = results.map(c => {
             const loc = c.locationName ? `${c.locationName}: ` : ''
             return `${loc}${c.coordinates.x} ${c.coordinates.y} ${c.coordinates.z} (from ${c.player})`
           }).join(', ')
-          handleAIResponse(`Player ${username} is asking about coordinates. Stored coords: ${coordContext}. Their question: "${prompt}". Use coordinate data and your chat memory to answer.`, username)
+          handleAIResponse(`Player ${username} is asking about coordinates. Stored coords: ${coordContext}. Their question: "${message}". Use coordinate data and your chat memory to answer.`, username)
         } else {
-          handleAIResponse(`Player ${username} asked about coordinates: "${prompt}" but no coordinates are stored yet. Let them know. Check chat memory for any mentioned locations.`, username)
+          handleAIResponse(`Player ${username} asked about coordinates: "${message}" but no coordinates are stored yet. Let them know. Check chat memory for any mentioned locations.`, username)
         }
       } else {
-        handleAIResponse(`Player ${username} asks: "${prompt}". Use your full chat memory and session knowledge to answer. Reference things from past chat if relevant.`, username)
+        handleAIResponse(`Player ${username} mentioned you in chat: "${message}". Respond in character using your chat memory and session knowledge.`, username)
       }
-      return
-    }
-
-
-    // --- RANDOM CHAT COMMENTING: 40% chance ---
-    if (Math.random() < 0.40) {
-      log(`[AI] Random comment triggered by ${username}'s message`)
-      const recentMsgs = memory.getRecentMessages(10)
-      const chatContext = recentMsgs.map(m => `${m.player}: ${m.text}`).join('\n')
-      handleAIResponse(`Here is recent chat:\n${chatContext}\n\nComment on the conversation naturally. You are observing server chat. Be witty and engaging.`, username)
     }
 
   })
@@ -248,12 +212,6 @@ function createBot() {
     log(`[EVENT] Player joined: ${player.username}`)
     memory.addPlayer(player.username)
     handleAIResponse(`Player ${player.username} just joined the server. Welcome them to the island in your usual creepy/seductive manner.`, player.username)
-  })
-
-  bot.on('playerLeft', (player) => {
-    if (player.username === bot.username) return
-    log(`[EVENT] Player left: ${player.username}`)
-    handleAIResponse(`Player ${player.username} just left the server. Say something sarcastic or mocking about their departure.`, player.username)
   })
 
   bot.on('end', () => {
