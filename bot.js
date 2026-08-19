@@ -3,10 +3,7 @@ const express = require('express')
 const http = require('http')
 const { Server } = require('socket.io')
 
-// AI modules
-const memory = require('./memory')
-const coordMemory = require('./coordinateMemory')
-const { getAIResponse, splitMessage, MAX_RESPONSE_LENGTH } = require('./ai')
+// AI modules removed
 
 const app = express()
 const server = http.createServer(app)
@@ -123,58 +120,7 @@ function createBot() {
   })
 
   bot.on('chat', (username, message) => {
-
     log(`[CHAT] ${username}: ${message}`)
-
-    // --- Store everything in session memory ---
-    memory.addMessage(username, message)
-    memory.addPlayer(username)
-
-    // --- Detect and store coordinates ---
-    const coordEntry = coordMemory.detectAndStore(username, message)
-    if (coordEntry) {
-      const loc = coordEntry.locationName ? ` (${coordEntry.locationName})` : ''
-      log(`[COORDS] Stored: ${coordEntry.coordinates.x} ${coordEntry.coordinates.y} ${coordEntry.coordinates.z}${loc} from ${username}`)
-    }
-
-    // --- Detect death events ---
-    if (isDeathMessage(message)) {
-      memory.addEvent('player_death', message, username)
-      log(`[EVENT] Death detected: ${message}`)
-      handleAIResponse(`A player just died: "${message}". Comment on this death.`, username)
-    }
-
-    // --- Detect advancement events ---
-    if (isAdvancementMessage(message)) {
-      memory.addEvent('player_advancement', message, username)
-      log(`[EVENT] Advancement detected: ${message}`)
-      handleAIResponse(`A player got an advancement: "${message}". Comment on it.`, username)
-    }
-
-    // Skip self-messages for AI triggers
-    if (username === bot.username) return
-
-    // --- MENTION TRIGGER: "sp.singh_" mentioned in chat ---
-    if (message.toLowerCase().includes('sp.singh_') || message.toLowerCase().includes('singh')) {
-      log(`[AI] Mentioned by ${username}: ${message}`)
-      
-      // Check if this is a coordinate query masquerading as a mention
-      if (isCoordinateQuery(message)) {
-        const results = coordMemory.searchCoordinates(message.replace(/^(coords|where is|where are|location|coords of)\s*/i, '').trim())
-        if (results.length > 0) {
-          const coordContext = results.map(c => {
-            const loc = c.locationName ? `${c.locationName}: ` : ''
-            return `${loc}${c.coordinates.x} ${c.coordinates.y} ${c.coordinates.z} (from ${c.player})`
-          }).join(', ')
-          handleAIResponse(`Player ${username} is asking about coordinates. Stored coords: ${coordContext}. Their question: "${message}". Use coordinate data and your chat memory to answer.`, username)
-        } else {
-          handleAIResponse(`Player ${username} asked about coordinates: "${message}" but no coordinates are stored yet. Let them know. Check chat memory for any mentioned locations.`, username)
-        }
-      } else {
-        handleAIResponse(`Player ${username} mentioned you in chat: "${message}". Respond in character using your chat memory and session knowledge.`, username)
-      }
-    }
-
   })
 
   bot.on('whisper', (username, message) => {
@@ -198,38 +144,24 @@ function createBot() {
   bot.on('kicked', reason => {
     log("Kicked: " + reason)
     if (String(reason).includes('duplicate_login')) {
-      // Add 30 seconds to the delay (up to a max so it doesn't get ridiculous)
       reconnectDelay += 30000
-      if (reconnectDelay > 300000) reconnectDelay = 300000 // cap at 5 minutes
+      if (reconnectDelay > 300000) reconnectDelay = 300000 
       log(`[SYSTEM] Duplicate login detected. Reconnect delay is now ${reconnectDelay / 1000} seconds.`)
     }
   })
   bot.on('error', err => log("Error: " + err))
 
-  // --- JOIN/LEAVE EVENTS ---
   bot.on('playerJoined', (player) => {
     if (player.username === bot.username) return
     log(`[EVENT] Player joined: ${player.username}`)
-    memory.addPlayer(player.username)
-    handleAIResponse(`Player ${player.username} just joined the server. Welcome them to the island in your usual creepy/seductive manner.`, player.username)
   })
 
   bot.on('end', () => {
     isConnecting = false;
-    // Stop all intervals when bot disconnects
     if (moveInterval) {
       clearInterval(moveInterval)
       moveInterval = null
     }
-    if (idleChatInterval) {
-      clearInterval(idleChatInterval)
-      idleChatInterval = null
-    }
-
-    // Reset all session memory on disconnect
-    memory.resetMemory()
-    coordMemory.resetCoordinates()
-    log('[MEMORY] Session memory cleared on disconnect')
 
     if (shouldReconnect) {
       if (reconnectTimer) clearTimeout(reconnectTimer)
@@ -244,101 +176,6 @@ function createBot() {
       log(`Bot disconnected... reconnect is currently PAUSED.`)
     }
   })
-}
-
-/**
- * Handle an AI response asynchronously.
- * Logic:
- * 1. If response <= 250, send directly.
- * 2. If prompt asks for "detailed", send all messages immediately.
- * 3. Otherwise, 30% chance to ask for multi-message permission.
- * 4. If 30% chance fails, just send the first 250 chars.
- */
-async function handleAIResponse(prompt, triggerPlayer) {
-  try {
-    const response = await getAIResponse(prompt, memory, coordMemory)
-    if (!response || !bot) return
-
-    log(`[AI] Raw Response (${response.length} chars): ${response}`)
-
-    // Short response — send directly
-    if (response.length <= MAX_RESPONSE_LENGTH) {
-      if (triggerPlayer && prompt.includes('WHISPER_INVITE')) {
-        bot.whisper(triggerPlayer, response)
-        lastWhisperTarget = triggerPlayer
-      } else {
-        bot.chat(response)
-      }
-      return
-    }
-
-    // Long response logic - just send the first part and limit the message
-    const parts = splitMessage(response, MAX_RESPONSE_LENGTH)
-    
-    log(`[AI] Response too long, sending only the first part.`)
-    if (triggerPlayer && prompt.includes('WHISPER_INVITE')) {
-      bot.whisper(triggerPlayer, parts[0])
-      lastWhisperTarget = triggerPlayer
-    } else {
-      bot.chat(parts[0])
-    }
-
-  } catch (err) {
-    log(`[AI] Error generating response: ${err.message}`)
-  }
-}
-
-/**
- * Idle chatter: the bot periodically comments on its own
- * every 2-5 minutes if there has been recent chat activity.
- */
-function startIdleChatter() {
-  // Random interval between 2-5 minutes (120000 - 300000 ms)
-  function scheduleNext() {
-    const delay = 120000 + Math.floor(Math.random() * 180000)
-    idleChatInterval = setTimeout(() => {
-      const recentMsgs = memory.getRecentMessages(15)
-      const onlinePlayers = Object.keys(bot.players).filter(name => name !== bot.username)
-
-      if (onlinePlayers.length > 0 && recentMsgs.length > 0 && bot) {
-        log('[AI] Idle chatter triggered')
-        const chatContext = recentMsgs.map(m => `${m.player}: ${m.text}`).join('\n')
-        const events = memory.getEvents().slice(-5)
-        const eventContext = events.length > 0
-          ? '\nRecent events: ' + events.map(e => e.description).join(', ')
-          : ''
-
-        const idlePrompts = [
-          `You are watching server chat. Here is recent activity:\n${chatContext}${eventContext}\n\nSay something unprompted about what you have been observing. Be opinionated and engaging.`,
-          `Recent server chat:\n${chatContext}${eventContext}\n\nDrop a random piece of Minecraft wisdom, strategy tip, or sarcastic observation about what players are doing.`,
-          `Chat log:\n${chatContext}${eventContext}\n\nShare a thought about the server. Maybe brag about your builds, mock someone, or give unsolicited advice.`,
-          `Observing chat:\n${chatContext}${eventContext}\n\nMake a provocative or interesting comment to stir up conversation. Be your usual dominant self.`,
-          `WHISPER_INVITE: Generate a secretive, seductive, and creepy whisper invite to "the island". Sound like sp.singh_. Be cryptic and playful.`
-        ]
-
-        const roll = Math.random()
-        let prompt
-        let targetPlayer = null
-
-        // 30% chance to whisper a random player instead of public chat
-        if (roll < 0.3) {
-          const players = onlinePlayers
-          if (players.length > 0) {
-            targetPlayer = players[Math.floor(Math.random() * players.length)]
-            prompt = idlePrompts[4] // WHISPER_INVITE
-          } else {
-            prompt = idlePrompts[Math.floor(Math.random() * 4)] // fall back to public
-          }
-        } else {
-          prompt = idlePrompts[Math.floor(Math.random() * 4)]
-        }
-
-        handleAIResponse(prompt, targetPlayer)
-      }
-      scheduleNext()
-    }, delay)
-  }
-  scheduleNext()
 }
 
 // Health check endpoint for UptimeRobot
